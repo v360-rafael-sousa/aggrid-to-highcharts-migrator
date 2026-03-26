@@ -1,3 +1,8 @@
+const theme = {
+    "custom-header-blue": "default-blue-theme with-borders",
+    "custom-header-green": "default-green-theme with-borders",
+}
+
 function migrarTabela(table) {
   const comp = table.components[0];
   // 1. Mapeamento básico de tipos e metadados
@@ -10,7 +15,7 @@ function migrarTabela(table) {
           columns: [],
           header: [],
           rendering: {
-            theme: "default-green-theme with-borders",
+            theme: theme[comp.gridOptions.defaultColDef.headerClass] ?? "default-green-theme with-borders",
           },
         },
       },
@@ -23,8 +28,6 @@ function migrarTabela(table) {
 
   // 2. Processar colunas do AG-Grid
   comp.columns.forEach((col) => {
-    // if(col.field === "rowIndex" || col.colId === "rowIndex") return;
-
     // Lógica para colunas AGRUPADAS (Dimensões)
     if (col.rowGroup) {
       const useHeaderNameAsTitle = col.headerName.includes("<") && col.headerName.includes(">") 
@@ -96,7 +99,6 @@ function migrarTabela(table) {
 
   nova.components[0].gridOptions.columns = novasColunas;
   nova.components[0].gridOptions.header = novoHeader;
-
   return JSON.stringify(nova);
 }
 
