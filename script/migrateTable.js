@@ -19,11 +19,11 @@ function migrarTabela(table) {
   };
 
   const novasColunas = [];
-  const novoHeader = ["rowIndex"];
+  const novoHeader = [];
 
   // 2. Processar colunas do AG-Grid
   comp.columns.forEach((col) => {
-    if(col.field === "rowIndex" || col.colId === "rowIndex") return;
+    // if(col.field === "rowIndex" || col.colId === "rowIndex") return;
 
     // Lógica para colunas AGRUPADAS (Dimensões)
     if (col.rowGroup) {
