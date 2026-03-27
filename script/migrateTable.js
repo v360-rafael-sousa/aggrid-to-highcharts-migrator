@@ -1,7 +1,16 @@
 const theme = {
     "custom-header-blue": "default-blue-theme with-borders",
     "custom-header-green": "default-green-theme with-borders",
+    "custom-header-black": "default-black-theme with-borders",
+    "custom-header-red": "default-red-theme with-borders",
+    "custom-header-white": "default-white-theme with-borders",
 }
+
+const convertFormat = {
+  "formatNumber":"number",
+  "formatPercentage":"porcentagem"
+}
+
 
 function migrarTabela(table) {
   const comp = table.components[0];
@@ -95,6 +104,19 @@ function migrarTabela(table) {
                 formatter: `function() {return cellFormatter({value: this.value, format: '${m.formatCurrency ? "moeda" : "number"}',precision: ${m.precision ?? 2},customStyle: ${m.cellStyle ? JSON.stringify(m.cellStyle).replace(/"([^"]+)":/g, '$1:').replaceAll(" ","") : "null"}});}`},
         })),
       });
+    }
+    else {
+      novasColunas.push({
+        id: col.field,
+        format: col.headerName,
+        width: col.width || 100,
+        className:
+          col.cellStyle?.textAlign === "end"
+            ? "txt-align-right"
+            : "txt-align-center", 
+            cells: { 
+              formatter: `function() {return cellFormatter({value: this.value, format: '${col.formatCurrency ? "moeda" : "number"}',precision: ${col.precision ?? 2},customStyle: ${col.cellStyle ? JSON.stringify(col.cellStyle).replace(/"([^"]+)":/g, '$1:').replaceAll(" ","") : "null"}});} `},
+      })
     }
   });
 
