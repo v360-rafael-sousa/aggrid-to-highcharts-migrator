@@ -88,6 +88,8 @@ function migrarTabela(table) {
       // No novo formato, o pivot é um container que agrupa as métricas
       // Vamos identificar quais métricas pertencem a este pivot
       const metricas = comp.columns.filter((c) => !c.rowGroup && !c.pivot);
+      const formatKey = Object.keys(convertFormat).find(key => col[key]);
+      const resolvedFormat = formatKey ? convertFormat[formatKey] : "";
 
       novoHeader.push({
         pivot: col.field,
@@ -101,21 +103,27 @@ function migrarTabela(table) {
               ? "txt-align-right"
               : "txt-align-center", 
               cells: { 
-                formatter: `function() {return cellFormatter({value: this.value, format: '${m.formatCurrency ? "moeda" : "number"}',precision: ${m.precision ?? 2},customStyle: ${m.cellStyle ? JSON.stringify(m.cellStyle).replace(/"([^"]+)":/g, '$1:').replaceAll(" ","") : "null"}});}`},
+                formatter: `function() {return cellFormatter({value: this.value, ${resolvedFormat ? `format: '${resolvedFormat}',` : ""}precision: ${m.precision ?? 2},customStyle: ${m.cellStyle ? JSON.stringify(m.cellStyle).replace(/"([^"]+)":/g, '$1:').replaceAll(" ","") : "null"}});}`},
         })),
       });
     }
     else {
+      const formatKey = Object.keys(convertFormat).find(key => col[key]);
+      const resolvedFormat = formatKey ? convertFormat[formatKey] : "";
+      
       novasColunas.push({
         id: col.field,
-        format: col.headerName,
         width: col.width || 100,
+        header:{
+          format: col.headerName,
+          className: "txt-align-center",
+        },
         className:
           col.cellStyle?.textAlign === "end"
             ? "txt-align-right"
             : "txt-align-center", 
             cells: { 
-              formatter: `function() {return cellFormatter({value: this.value, format: '${col.formatCurrency ? "moeda" : "number"}',precision: ${col.precision ?? 2},customStyle: ${col.cellStyle ? JSON.stringify(col.cellStyle).replace(/"([^"]+)":/g, '$1:').replaceAll(" ","") : "null"}});} `},
+              formatter: `function() {return cellFormatter({value: this.value, ${resolvedFormat ? `format: '${resolvedFormat}',` : ""}precision: ${col.precision ?? 2},customStyle: ${col.cellStyle ? JSON.stringify(col.cellStyle).replace(/"([^"]+)":/g, '$1:').replaceAll(" ","") : "null"}});} `},
       })
     }
   });
