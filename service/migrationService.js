@@ -18,6 +18,7 @@ const batchMigrateTables = async (pageId, token) => {
         })
         if(savePage.status !== 200){
             throw new Error(`Failed to save page ${pageId}`);
+
         }
 
         console.log(`Page ${pageId} migrated successfully!`);

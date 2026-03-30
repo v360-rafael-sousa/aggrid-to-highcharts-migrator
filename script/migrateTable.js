@@ -9,12 +9,37 @@ const theme = {
 const convertFormat = {
   "formatNumber":"number",
   "formatPercentage":"porcentagem",
-  "formatCurrency": "moeda"
+  "formatCurrency": "moeda",
+  "formatType": "number",
 }
+
+const convertGridStyle = {
+  "chartWidth": "width",
+  "chartHeight": "height"
+}
+
+  
 
 const getResolvedFormat = (col) => {
   const formatKey = Object.keys(convertFormat).find(key => col[key]);
   return formatKey ? convertFormat[formatKey] : "";
+};
+
+const extractGridStyle = (component) =>{
+  const gridStyle = {};
+  Object.keys(convertGridStyle).forEach(key => {
+    if(component[key]) gridStyle[convertGridStyle[key]] = component[key];
+    delete component[key];
+  });
+  return gridStyle;
+}
+
+const buildFormatterString = (format, precision, cellStyle) => {
+  const options = ["value: this.value"];
+  if (format) options.push(`format: '${format}'`);
+  if (precision !== undefined && precision !== null && precision !== "") options.push(`precision: ${precision}`);
+  if (cellStyle && cellStyle !== undefined && cellStyle !== null && cellStyle !== "") options.push(`customStyle: ${JSON.stringify(cellStyle)}`);
+  return `function() {return cellFormatter({${options.join(", ")}});} `;
 };
 
 const processarAgrupador = (col, novasColunas, novoHeader, colunasExistentes) => {
@@ -89,7 +114,7 @@ const processarPivot = (col, metricas, novoHeader) => {
           ? "txt-align-right"
           : "txt-align-center", 
       cells: { 
-        formatter: `function() {return cellFormatter({value: this.value, ${metricFormat ? `format: '${metricFormat}',` : ""}precision: ${m.precision ?? 2},customStyle: ${m.cellStyle ? JSON.stringify(m.cellStyle).replace(/"([^"]+)":/g, '$1:').replaceAll(" ","") : "null"}});}`
+        formatter: buildFormatterString(metricFormat, m.precision, m.cellStyle)
       },
     };
   });
@@ -97,9 +122,9 @@ const processarPivot = (col, metricas, novoHeader) => {
   novoHeader.push(pivotHeader);
 };
 
-const processarMetrica = (col, novasColunas) => {
+const processarMetrica = (col, novasColunas, rowStyle) => {
   const resolvedFormat = getResolvedFormat(col);
-
+  const mergeStyle = {...col.cellStyle, ...rowStyle};
   novasColunas.push({
     id: col.field,
     width: col.width || 100,
@@ -112,17 +137,27 @@ const processarMetrica = (col, novasColunas) => {
         ? "txt-align-right"
         : "txt-align-center", 
     cells: { 
-      formatter: `function() {return cellFormatter({value: this.value, ${resolvedFormat ? `format: '${resolvedFormat}',` : ""}precision: ${col.precision ?? 2},customStyle: ${col.cellStyle ? JSON.stringify(col.cellStyle).replace(/"([^"]+)":/g, '$1:').replaceAll(" ","") : "null"}});} `
+      formatter: buildFormatterString(resolvedFormat, col.precision, mergeStyle)
     },
   });
 };
 
 function migrarTabela(table) {
-  const comp = table.components[0];
-  // 1. Mapeamento básico de tipos e metadados
   const nova = {
-    components: [
-      {
+    components: [],
+    config: table.config,
+  };
+
+  if (!table.components || !Array.isArray(table.components)) {
+    return JSON.stringify(nova);
+  }
+
+  table.components.forEach((comp) => {
+    // 1. Identifica se é uma tabela antiga do AG-Grid (possui columns e gridOptions)
+    if (comp.columns && Array.isArray(comp.columns) && comp.gridOptions) {
+      const headerClass = comp.gridOptions.defaultColDef?.headerClass;
+      
+      const novoComp = {
         ...comp,
         type: "grid",
         gridOptions: {
@@ -132,46 +167,52 @@ function migrarTabela(table) {
             enabled: true,
           },
           rendering: {
-            theme: theme[comp.gridOptions.defaultColDef.headerClass] ?? "default-green-theme with-borders",
+            theme: theme[headerClass] ?? "default-green-theme with-borders",
           },
         },
-      },
-    ],
-    config: table.config,
-  };
+        gridStyle: {...extractGridStyle(comp)},
+      };
 
-  const novasColunas = [];
-  const novoHeader = [];
-  
-  // Identifica se há colunas de pivot e quais são as métricas mapeadas nelas
-  const hasPivot = comp.columns.some(col => col.pivot);
-  const metricas = comp.columns.filter((c) => !c.rowGroup && !c.pivot && c.colId !== "rowIndex");
+      const novasColunas = [];
+      const novoHeader = [];
+      
+      // Identifica se há colunas de pivot e quais são as métricas mapeadas nelas
+      const hasPivot = comp.columns.some(col => col.pivot);
+      const metricas = comp.columns.filter((c) => !c.rowGroup && !c.pivot && c.colId !== "rowIndex");
 
-  // 2. Processar colunas do AG-Grid
-  comp.columns.forEach((col) => {
-    if(col.colId === "rowIndex"){
-      novoHeader.push("rowIndex");
-      return;
-    }
+      // 2. Processar colunas do AG-Grid
+      comp.columns.forEach((col) => {
+        if(col.colId === "rowIndex"){
+          novoHeader.push("rowIndex");
+          return;
+        }
 
-    if (col.rowGroup) {
-      processarAgrupador(col, novasColunas, novoHeader, nova.components[0].gridOptions.columns);
-    } 
-    else if (col.pivot) {
-      processarPivot(col, metricas, novoHeader);
-    } 
-    else if (!hasPivot) {
-      // Se tiver pivot, não processamos colunas como nova coluna, evitando duplicidades.
-      processarMetrica(col, novasColunas);
+        if (col.rowGroup) {
+          processarAgrupador(col, novasColunas, novoHeader, novoComp.gridOptions.columns);
+        } 
+        else if (col.pivot) {
+          processarPivot(col, metricas, novoHeader);
+        } 
+        else if (!hasPivot) {
+          // Se tiver pivot, não processamos colunas como nova coluna, evitando duplicidades.
+          processarMetrica(col, novasColunas, comp.gridOptions.rowStyle);
+        }
+      });
+
+      // Removendo propriedades antigas que não existem no novo modelo
+      delete novoComp.columns;
+      delete novoComp.wrapHeader;
+
+      novoComp.gridOptions.columns = novasColunas;
+      novoComp.gridOptions.header = novoHeader;
+      
+      nova.components.push(novoComp);
+    } else {
+      // 3. Mantém componentes que não são grids (ou que já foram migrados) intactos
+      nova.components.push(comp);
     }
   });
 
-  // Removendo propriedades antigas que não existem no novo modelo
-  delete nova.components[0].columns;
-  delete nova.components[0].wrapHeader;
-
-  nova.components[0].gridOptions.columns = novasColunas;
-  nova.components[0].gridOptions.header = novoHeader;
   return JSON.stringify(nova);
 }
 
