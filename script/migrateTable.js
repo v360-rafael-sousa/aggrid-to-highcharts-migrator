@@ -25,6 +25,12 @@ const getResolvedFormat = (col) => {
   return formatKey ? convertFormat[formatKey] : "";
 };
 
+const isNumericColumn = (col) => {
+  return col.type === "numericColumn" || 
+         col.filter === "agNumberColumnFilter" || 
+         !!getResolvedFormat(col);
+};
+
 const extractGridStyle = (component) =>{
   const gridStyle = {};
   Object.keys(convertGridStyle).forEach(key => {
@@ -34,11 +40,22 @@ const extractGridStyle = (component) =>{
   return gridStyle;
 }
 
-const buildFormatterString = (format, precision, cellStyle) => {
+const buildFormatterString = (format, precision, cellStyle, isNumeric) => {
   const options = ["value: this.value"];
   if (format) options.push(`format: '${format}'`);
-  if (precision !== undefined && precision !== null && precision !== "") options.push(`precision: ${precision}`);
-  if (cellStyle && cellStyle !== undefined && cellStyle !== null && cellStyle !== "") options.push(`customStyle: ${JSON.stringify(cellStyle)}`);
+  
+  if (format === "moeda" || format === "porcentagem") {
+    options.push(`precision: 2`);
+  } else if (precision !== undefined && precision !== null && precision !== "") {
+    options.push(`precision: ${precision}`);
+  } else if (isNumeric || format) {
+    options.push(`precision: 2`);
+  }
+
+  if (cellStyle && cellStyle !== undefined && cellStyle !== null && cellStyle !== "") {
+    options.push(`customStyle: ${JSON.stringify(cellStyle)}`);
+  }
+  
   return `function() {return cellFormatter({${options.join(", ")}});} `;
 };
 
@@ -67,7 +84,7 @@ const processarAgrupador = (col, novasColunas, novoHeader, colunasExistentes) =>
 
   novasColunas.push({
     id: idDimensao,
-    enabled: idDimensao !== "dimensao", // Exemplo: desabilitar a primeira se for repetida
+    enabled: true,
     header: {
       format: col.headerName,
       className: "txt-align-center",
@@ -91,6 +108,7 @@ const processarAgrupador = (col, novasColunas, novoHeader, colunasExistentes) =>
 const processarPivot = (col, metricas, novoHeader) => {
   // No novo formato, o pivot é um container que agrupa as métricas
   const fallbackFormat = getResolvedFormat(col);
+  const isPivotNumeric = isNumericColumn(col);
 
   const pivotHeader = {
     pivot: col.field,
@@ -104,8 +122,9 @@ const processarPivot = (col, metricas, novoHeader) => {
   pivotHeader.columns = metricas.map((m) => {
     // Idealmente usamos o formato específico da métrica, com fallback no formato do pivot
     const metricFormat = getResolvedFormat(m) || fallbackFormat;
+    const isNum = isNumericColumn(m) || isPivotNumeric || !!metricFormat;
     
-    return {
+    const baseCol = {
       columnId: m.field,
       format: m.headerName,
       width: m.width || 140,
@@ -114,9 +133,10 @@ const processarPivot = (col, metricas, novoHeader) => {
           ? "txt-align-right"
           : "txt-align-center", 
       cells: { 
-        formatter: buildFormatterString(metricFormat, m.precision, m.cellStyle)
+        formatter: buildFormatterString(metricFormat, m.precision ?? 0, m.cellStyle, isNum)
       },
     };
+    return baseCol;
   });
 
   novoHeader.push(pivotHeader);
@@ -125,7 +145,9 @@ const processarPivot = (col, metricas, novoHeader) => {
 const processarMetrica = (col, novasColunas, rowStyle) => {
   const resolvedFormat = getResolvedFormat(col);
   const mergeStyle = {...col.cellStyle, ...rowStyle};
-  novasColunas.push({
+  const isNum = isNumericColumn(col);
+  
+  const novaCol = {
     id: col.field,
     width: col.width || 100,
     header:{
@@ -137,9 +159,11 @@ const processarMetrica = (col, novasColunas, rowStyle) => {
         ? "txt-align-right"
         : "txt-align-center", 
     cells: { 
-      formatter: buildFormatterString(resolvedFormat, col.precision, mergeStyle)
+      formatter: buildFormatterString(resolvedFormat, col.precision ?? 0, mergeStyle, isNum)
     },
-  });
+  };
+
+  novasColunas.push(novaCol);
 };
 
 function migrarTabela(table) {
@@ -170,7 +194,7 @@ function migrarTabela(table) {
             theme: theme[headerClass] ?? "default-green-theme with-borders",
           },
         },
-        gridStyle: {...extractGridStyle(comp)},
+        gridStyle: {...extractGridStyle(comp), ...comp.style},
       };
 
       const novasColunas = [];
@@ -203,6 +227,10 @@ function migrarTabela(table) {
       delete novoComp.columns;
       delete novoComp.wrapHeader;
 
+      delete novoComp.chartWidth;
+      delete novoComp.chartHeight;
+      delete novoComp.style;
+      
       novoComp.gridOptions.columns = novasColunas;
       novoComp.gridOptions.header = novoHeader;
       
