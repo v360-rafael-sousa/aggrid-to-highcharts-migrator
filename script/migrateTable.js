@@ -59,6 +59,14 @@ const buildFormatterString = (format, precision, cellStyle, isNumeric) => {
   return `function() {return cellFormatter({${options.join(", ")}});} `;
 };
 
+const setTitleStyle = (component) =>{
+  if(component.title){
+    component.titleStyle = {
+      "textAlign": "center",
+    }
+  }
+}
+
 const processarAgrupador = (col, novasColunas, novoHeader, colunasExistentes) => {
   const useHeaderNameAsTitle = col.headerName.includes("<") && col.headerName.includes(">");
   const colId = useHeaderNameAsTitle ? col.headerName : col.field;
@@ -72,11 +80,11 @@ const processarAgrupador = (col, novasColunas, novoHeader, colunasExistentes) =>
       enabled: true,
       header: {
           "format": "sku",
-          "className": "txt-align-center"
+          "className": "txt-align-left"
       },
       "cells": {
           "formatter": "function() {return cellFormatter({ value: this.value });}",
-          "className": "txt-align-center"
+          "className": "txt-align-left"
       },
       "width": 300
     });
@@ -87,11 +95,11 @@ const processarAgrupador = (col, novasColunas, novoHeader, colunasExistentes) =>
     enabled: true,
     header: {
       format: col.headerName,
-      className: "txt-align-center",
+      className: "txt-align-left",
     },
     cells: {
       formatter: "function() {return cellFormatter({ value: this.value});}",
-      className: "txt-align-center",
+      className: "txt-align-left",
     },
     width: 150,
   });
@@ -105,15 +113,19 @@ const processarAgrupador = (col, novasColunas, novoHeader, colunasExistentes) =>
   }
 };
 
-const processarPivot = (col, metricas, novoHeader) => {
+const processarPivot = (col, metricas, novoHeader, isNovaTabela) => {
   // No novo formato, o pivot é um container que agrupa as métricas
   const fallbackFormat = getResolvedFormat(col);
   const isPivotNumeric = isNumericColumn(col);
 
   const pivotHeader = {
-    pivot: col.field,
-    className: "txt-align-center"
   };
+
+  if (!isNovaTabela) {
+    pivotHeader.className = "txt-align-left";
+  }
+  
+  pivotHeader.pivot = col.field;
 
   if (col.order) {
     pivotHeader.order = col.order;
@@ -124,20 +136,33 @@ const processarPivot = (col, metricas, novoHeader) => {
     const metricFormat = getResolvedFormat(m) || fallbackFormat;
     const isNum = isNumericColumn(m) || isPivotNumeric || !!metricFormat;
     
+    const isHeatmapMetric = isNovaTabela && m.field === "html";
+
     const baseCol = {
-      columnId: m.field,
-      format: m.headerName,
-      width: m.width || 140,
-      className:
-        m.cellStyle?.textAlign === "end"
-          ? "txt-align-right"
-          : "txt-align-center", 
+      columnId: isHeatmapMetric ? "html" : m.field,
+      format: isHeatmapMetric ? "" : m.headerName,
+      ...(!isHeatmapMetric && { width: m.width || 140 }),
       cells: { 
-        formatter: buildFormatterString(metricFormat, m.precision ?? 0, m.cellStyle, isNum)
+        formatter: isHeatmapMetric 
+            ? "function() { const pivotColumn = this.column.id.split('_pivot_')[1]; const bgColor = this.row.data[`cor_fundo_pivot_${pivotColumn}`]; const txtColor = this.row.data[`cor_texto_pivot_${pivotColumn}`]; return cellFormatter({ value: this.value, customStyle: {backgroundColor: bgColor, color: txtColor} }) }"
+            : buildFormatterString(metricFormat, m.precision ?? 0, m.cellStyle, isNum),
+        className: isHeatmapMetric ? "txt-align-center no-padding" : "txt-align-left",
       },
+      ...(isHeatmapMetric && { className: "no-padding txt-align-center" })
     };
     return baseCol;
   });
+
+  if (isNovaTabela) {
+    pivotHeader.columns.push({
+      columnId: "cor_fundo",
+      enabled: false
+    });
+    pivotHeader.columns.push({
+      columnId: "cor_texto",
+      enabled: false
+    });
+  }
 
   novoHeader.push(pivotHeader);
 };
@@ -152,14 +177,11 @@ const processarMetrica = (col, novasColunas, rowStyle) => {
     width: col.width || 100,
     header:{
       format: col.headerName,
-      className: "txt-align-center",
+      className: "txt-align-left",
     },
-    className:
-      col.cellStyle?.textAlign === "end"
-        ? "txt-align-right"
-        : "txt-align-center", 
     cells: { 
-      formatter: buildFormatterString(resolvedFormat, col.precision ?? 0, mergeStyle, isNum)
+      formatter: buildFormatterString(resolvedFormat, col.precision ?? 0, mergeStyle, isNum),
+      className: "txt-align-left",
     },
   };
 
@@ -179,6 +201,7 @@ function migrarTabela(table) {
   table.components.forEach((comp) => {
     // 1. Identifica se é uma tabela antiga do AG-Grid (possui columns e gridOptions)
     if (comp.columns && Array.isArray(comp.columns) && comp.gridOptions) {
+      const isNovaTabela = comp.type === "nova-tabela";
       const headerClass = comp.gridOptions.defaultColDef?.headerClass;
       
       const novoComp = {
@@ -192,10 +215,13 @@ function migrarTabela(table) {
           },
           rendering: {
             theme: theme[headerClass] ?? "default-green-theme with-borders",
+            ...(isNovaTabela ? { rows: { bufferSize: 100 } } : {})
           },
         },
-        gridStyle: {...extractGridStyle(comp), ...comp.style},
+        gridStyle: isNovaTabela ? { padding: "0px", margin: "0px" } : {...extractGridStyle(comp), ...comp.style},
       };
+      // set title style
+      setTitleStyle(novoComp);
 
       const novasColunas = [];
       const novoHeader = [];
@@ -215,7 +241,7 @@ function migrarTabela(table) {
           processarAgrupador(col, novasColunas, novoHeader, novoComp.gridOptions.columns);
         } 
         else if (col.pivot) {
-          processarPivot(col, metricas, novoHeader);
+          processarPivot(col, metricas, novoHeader, isNovaTabela);
         } 
         else if (!hasPivot) {
           // Se tiver pivot, não processamos colunas como nova coluna, evitando duplicidades.
